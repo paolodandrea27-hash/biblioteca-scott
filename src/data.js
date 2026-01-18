@@ -53,17 +53,45 @@ export async function setLocations(locs) {
   await setDoc(ref, { locations: locs }, { merge: true });
 }
 
+export async function getCategories() {
+  const ref = metaDoc();
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    const defaults = [
+      "Narrativa",
+      "Saggistica",
+      "Classici",
+      "Poesia",
+      "Teatro",
+      "Altro",
+    ];
+    await setDoc(ref, { categories: defaults }, { merge: true });
+    return defaults;
+  }
+  const data = snap.data();
+  const cats = Array.isArray(data.categories) ? data.categories : [];
+  return cats.length ? cats : ["Altro"];
+}
+
+export async function setCategories(categories) {
+  const ref = metaDoc();
+  await setDoc(ref, { categories }, { merge: true });
+}
+
 export async function exportBackupJSON() {
   const books = await listBooks();
   const locations = await getLocations();
-  return { version: 2, exportedAt: Date.now(), libraryId: LIBRARY_ID, locations, books };
+  const categories = await getCategories();
+  return { version: 3, exportedAt: Date.now(), libraryId: LIBRARY_ID, locations, categories, books };
 }
 
 export async function importBackupJSON(payload, { mode = "merge" } = {}) {
   const incoming = payload?.books || [];
   const incomingLocs = payload?.locations || [];
+  const incomingCats = payload?.categories || [];
 
   if (incomingLocs.length) await setLocations(incomingLocs);
+  if (incomingCats.length) await setCategories(incomingCats);
 
   if (mode === "replace") {
     const existing = await listBooks();
@@ -80,6 +108,7 @@ export async function clearAllData() {
   const existing = await listBooks();
   for (const b of existing) await deleteBook(b.id);
   await setLocations(["salone", "camera matrimoniale", "camera Niki", "camera Francesco", "camera Cecilia", "studio"]);
+  await setCategories(["Narrativa", "Saggistica", "Classici", "Poesia", "Teatro", "Altro"]);
 }
 
 export async function blobToObjectURL(valueOrNull) {

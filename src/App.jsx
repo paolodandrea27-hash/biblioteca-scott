@@ -6,10 +6,12 @@ import {
   clearAllData,
   deleteBook,
   exportBackupJSON,
+  getCategories,
   getLocations,
   importBackupJSON,
   listBooks,
   makeId,
+  setCategories,
   setLocations,
   upsertBook,
 } from "./data.js";
@@ -39,7 +41,11 @@ function matches(book, q){
     normKey(book.authorFirst).includes(qq) ||
     normKey(book.location).includes(qq) ||
     normKey(book.archive).includes(qq) ||
-    normKey(book.isbn).includes(qq)
+    normKey(book.category).includes(qq) ||
+    normKey(book.isbn).includes(qq) ||
+    // UI uses label "Note"; support both "notes" (current) and "note" (legacy).
+    normKey(book.notes).includes(qq) ||
+    normKey(book.note).includes(qq)
   );
 }
 
@@ -411,7 +417,7 @@ function AuthGate(){
   );
 }
 
-function TopBar({ userEmail, onAdd, onLocations, onBackup, onLogout }){
+function TopBar({ userEmail, onAdd, onLocations, onCategories, onBackup, onLogout }){
   return (
     <div style={styles.topbar}>
       <div style={{flex:1}}>
@@ -419,6 +425,7 @@ function TopBar({ userEmail, onAdd, onLocations, onBackup, onLogout }){
         <div style={styles.small}>Utente: {userEmail}</div>
       </div>
       <button style={styles.btn} onClick={onLocations}>Location</button>
+      <button style={styles.btn} onClick={onCategories}>Categorie</button>
       <button style={styles.btn} onClick={onBackup}>Backup</button>
       <button style={styles.btn} onClick={onLogout}>Logout</button>
       <button style={styles.btnPrimary} onClick={onAdd}>+ Aggiungi</button>
@@ -441,7 +448,10 @@ function BookCard({ b, onOpen }){
           <div style={{fontWeight:800}}>{(b.authorLast||"")}{b.authorFirst?`, ${b.authorFirst}`:""}</div>
           <div style={{fontSize:16, fontWeight:800}}>{b.title}</div>
           <div style={styles.meta}>
-            {b.isbn?`ISBN ${b.isbn} • `:""}{b.location?`📍 ${b.location}`:""}{b.archive?` • 🗂️ ${b.archive}`:""}
+            {b.isbn?`ISBN ${b.isbn} • `:""}
+            {b.location?`📍 ${b.location}`:""}
+            {b.category?` • 🏷️ ${b.category}`:""}
+            {b.archive?` • 🗂️ ${b.archive}`:""}
           </div>
         </div>
       </div>
@@ -475,7 +485,7 @@ function BookPick({ results, onPick, onCancel }){
     </div>
   );
 }
-function BookForm({ mode, locations, archives, initial, onCancel, onSave }){
+function BookForm({ mode, locations, categories, archives, initial, onCancel, onSave }){
   const [authorLast,setAuthorLast]=useState(initial?.authorLast??"");
   const [authorFirst,setAuthorFirst]=useState(initial?.authorFirst??"");
   const [title,setTitle]=useState(initial?.title??"");
@@ -484,6 +494,7 @@ function BookForm({ mode, locations, archives, initial, onCancel, onSave }){
   const [status,setStatus]=useState("");
   const [location,setLocation]=useState(initial?.location??(locations[0]||""));
   const [archive,setArchive]=useState(initial?.archive??"");
+  const [category,setCategory]=useState(initial?.category??(categories?.[0]||""));
   const [notes,setNotes]=useState(initial?.notes??"");
   const [personalCoverDataUrl,setPersonal]=useState(initial?.personalCoverDataUrl??"");
   const [catalogCoverUrl,setCatalog]=useState(initial?.catalogCoverUrl??"");
@@ -601,12 +612,19 @@ async function searchGoogle(){
             </select>
           </div>
           <div>
-            <div style={styles.label}>Archivio / sub-location</div>
-            <input style={styles.input} value={archive} onChange={e=>setArchive(e.target.value)} list="arch-sug"/>
-            <datalist id="arch-sug">
-              {archives.map(a=><option key={a} value={a}/>)}
-            </datalist>
+            <div style={styles.label}>Categoria</div>
+            <select style={styles.select} value={category} onChange={e=>setCategory(e.target.value)}>
+              {(categories||[]).map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
+        </div>
+
+        <div>
+          <div style={styles.label}>Archivio / sub-location</div>
+          <input style={styles.input} value={archive} onChange={e=>setArchive(e.target.value)} list="arch-sug"/>
+          <datalist id="arch-sug">
+            {archives.map(a=><option key={a} value={a}/>)}
+          </datalist>
         </div>
 
         <div>
@@ -650,6 +668,7 @@ async function searchGoogle(){
               isbn:cleanISBN(isbn),
               location:norm(location),
               archive:norm(archive),
+              category:norm(category),
               notes:norm(notes),
               personalCoverDataUrl: personalCoverDataUrl||"",
               catalogCoverUrl: catalogCoverUrl||"",
@@ -683,7 +702,12 @@ function Detail({ book, onBack, onEdit, onDelete }){
         ) : null}
         <div style={{fontSize:20, fontWeight:900}}>{book.authorLast}{book.authorFirst?`, ${book.authorFirst}`:""}</div>
         <div style={{fontSize:18, fontWeight:800}}>{book.title}</div>
-        <div style={styles.meta}>{book.isbn?`ISBN: ${book.isbn} • `:""}{book.location?`📍 ${book.location}`:""}{book.archive?` • 🗂️ ${book.archive}`:""}</div>
+        <div style={styles.meta}>
+          {book.isbn?`ISBN: ${book.isbn} • `:""}
+          {book.location?`📍 ${book.location}`:""}
+          {book.category?` • 🏷️ ${book.category}`:""}
+          {book.archive?` • 🗂️ ${book.archive}`:""}
+        </div>
         {book.notes ? <div style={{whiteSpace:"pre-wrap"}}>{book.notes}</div> : <div style={styles.small}>Nessuna nota.</div>}
         <div style={{display:"flex", gap:10}}>
           <button style={styles.btnPrimary} onClick={onEdit}>Modifica</button>
@@ -718,6 +742,42 @@ function LocationsManager({ locations, onClose, onSave }){
             <div key={loc} style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:10}}>
               <div style={{fontWeight:700}}>{loc}</div>
               <button style={styles.btn} onClick={()=>remove(loc)}>Rimuovi</button>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"flex", justifyContent:"flex-end", gap:10}}>
+          <button style={styles.btn} onClick={onClose}>Annulla</button>
+          <button style={styles.btnPrimary} onClick={()=>onSave(items)}>Salva</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategoriesManager({ categories, onClose, onSave }){
+  const [items,setItems]=useState(categories);
+  const [newItem,setNewItem]=useState("");
+  function add(){
+    const v = norm(newItem);
+    if(!v || items.includes(v)) return;
+    setItems([...items, v]); setNewItem("");
+  }
+  function remove(it){ setItems(items.filter(x=>x!==it)); }
+  return (
+    <div style={{display:"grid", gap:10}}>
+      <div style={styles.row}><span style={styles.link} onClick={onClose}>← Indietro</span></div>
+      <div style={{...styles.card, display:"grid", gap:10}}>
+        <div style={{fontWeight:900, fontSize:16}}>Gestione Categorie</div>
+        <div style={{display:"flex", gap:10}}>
+          <input style={styles.input} value={newItem} onChange={e=>setNewItem(e.target.value)} placeholder="Nuova categoria"/>
+          <button style={styles.btnPrimary} onClick={add}>Aggiungi</button>
+        </div>
+        <div style={styles.divider}/>
+        <div style={{display:"grid", gap:8}}>
+          {items.map(it=>(
+            <div key={it} style={{display:"flex", justifyContent:"space-between", alignItems:"center", gap:10}}>
+              <div style={{fontWeight:700}}>{it}</div>
+              <button style={styles.btn} onClick={()=>remove(it)}>Rimuovi</button>
             </div>
           ))}
         </div>
@@ -789,15 +849,19 @@ export default function App(){
 
   const [view,setView]=useState("library");
   const [locations,setLocationsState]=useState([]);
+  const [categories,setCategoriesState]=useState([]);
   const [books,setBooks]=useState([]);
   const [selected,setSelected]=useState(null);
   const [query,setQuery]=useState("");
   const [filterLocation,setFilterLocation]=useState("");
+  const [filterCategory,setFilterCategory]=useState("");
   const [filterArchive,setFilterArchive]=useState("");
 
   async function refresh(){
     const locs = await getLocations();
     setLocationsState(locs);
+    const cats = await getCategories();
+    setCategoriesState(cats);
     const b = await listBooks();
     setBooks(b);
   }
@@ -824,9 +888,11 @@ export default function App(){
   const visible = useMemo(()=>{
     return books
       .filter(b=>matches(b,query))
-      .filter(b=>filterLocation ? b.location===filterLocation : true)
-      .filter(b=>filterArchive ? b.archive===filterArchive : true);
-  },[books,query,filterLocation,filterArchive]);
+      .filter(b=>filterLocation ? norm(b.location)===norm(filterLocation) : true)
+      .filter(b=>filterCategory ? norm(b.category)===norm(filterCategory) : true)
+      // Normalize/trim to avoid "phantom" values (e.g., trailing spaces) breaking the filter.
+      .filter(b=>filterArchive ? norm(b.archive)===norm(filterArchive) : true);
+  },[books,query,filterLocation,filterCategory,filterArchive]);
 
   async function saveBook(form){
     const now = Date.now();
@@ -837,6 +903,7 @@ export default function App(){
       title: form.title,
       isbn: form.isbn || "",
       location: form.location || "",
+      category: form.category || "",
       archive: form.archive || "",
       notes: form.notes || "",
       personalCoverDataUrl: form.personalCoverDataUrl || "",
@@ -865,6 +932,12 @@ export default function App(){
     setView("library");
   }
 
+  async function saveCats(cats){
+    await setCategories(cats);
+    await refresh();
+    setView("library");
+  }
+
   async function logout(){
     await signOut(auth);
     setAuthed(false);
@@ -882,18 +955,26 @@ export default function App(){
             userEmail={userEmail}
             onAdd={()=>{ setSelected(null); setView("add"); }}
             onLocations={()=>setView("locations")}
+            onCategories={()=>setView("categories")}
             onBackup={()=>setView("backup")}
             onLogout={logout}
           />
           <div style={{display:"grid", gap:10}}>
             <div style={{...styles.card, display:"grid", gap:10}}>
               <input style={styles.input} placeholder="Cerca…" value={query} onChange={e=>setQuery(e.target.value)}/>
-              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
+              <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10}}>
                 <div>
                   <div style={styles.label}>Location</div>
                   <select style={styles.select} value={filterLocation} onChange={e=>setFilterLocation(e.target.value)}>
                     <option value="">Tutte</option>
                     {locations.map(l=><option key={l} value={l}>{l}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={styles.label}>Categoria</div>
+                  <select style={styles.select} value={filterCategory} onChange={e=>setFilterCategory(e.target.value)}>
+                    <option value="">Tutte</option>
+                    {categories.map(c=><option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
@@ -921,7 +1002,7 @@ export default function App(){
         <>
           <div style={styles.row}><span style={styles.link} onClick={()=>setView("library")}>← Indietro</span></div>
           <div style={{height:10}}/>
-          <BookForm mode="add" locations={locations} archives={archives} initial={null} onCancel={()=>setView("library")} onSave={saveBook}/>
+          <BookForm mode="add" locations={locations} categories={categories} archives={archives} initial={null} onCancel={()=>setView("library")} onSave={saveBook}/>
         </>
       )}
 
@@ -933,12 +1014,16 @@ export default function App(){
         <>
           <div style={styles.row}><span style={styles.link} onClick={()=>setView("detail")}>← Indietro</span></div>
           <div style={{height:10}}/>
-          <BookForm mode="edit" locations={locations} archives={archives} initial={selected} onCancel={()=>setView("detail")} onSave={saveBook}/>
+          <BookForm mode="edit" locations={locations} categories={categories} archives={archives} initial={selected} onCancel={()=>setView("detail")} onSave={saveBook}/>
         </>
       )}
 
       {view==="locations" && (
         <LocationsManager locations={locations} onClose={()=>setView("library")} onSave={saveLocs}/>
+      )}
+
+      {view==="categories" && (
+        <CategoriesManager categories={categories} onClose={()=>setView("library")} onSave={saveCats}/>
       )}
 
       {view==="backup" && (
